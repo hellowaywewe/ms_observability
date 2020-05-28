@@ -1,0 +1,60 @@
+programs:
+  - name: io_latency
+    metrics:
+      histograms:
+        - name: io_latency_seconds
+          help: Block IO latency histogram
+          table: run_simple_latency
+          bucket_type: exp2
+          bucket_min: 0
+          bucket_max: 8
+          bucket_multiplier: 0.000001
+          labels:
+            - name: bucket
+              size: 8
+              decoders:
+                - name: uint
+    kprobes:
+      blk_account_io_start: kprobe_start
+      blk_account_io_done: kprobe_end
+    code: |
+      #include <uapi/linux/ptrace.h>
+      #include <linux/blkdev.h>
+
+      const u8 max_latency_slot = 8;
+
+      BPF_HISTOGRAM(run_simple_latency, u64, max_latency_slot + 2);
+
+      BPF_HASH(start, struct request *);
+
+      int kprobe_start(struct pt_regs *ctx, struct request *req)
+      {
+          u64 ts = bpf_ktime_get_ns();
+          start.update(&req, &ts);
+          return 0;
+      }
+
+      int kprobe_end(struct pt_regs *ctx, struct request *req)
+      {
+          u64 *tsp, delta, delta_slot;
+          tsp = start.lookup(&req);
+          if (tsp == 0) {
+              return 0;
+          }
+
+          delta = bpf_ktime_get_ns() - *tsp;
+          delta /= 1000;
+
+          delta_slot = bpf_log2l(delta);
+
+          run_simple_latency.increment(delta_slot);
+
+          if (delta_slot > max_latency_slot) {
+              delta_slot = max_latency_slot;
+          }
+
+          run_simple_latency.increment(max_latency_slot + 1, delta);
+
+          start.delete(&req);
+          return 0;
+      }
