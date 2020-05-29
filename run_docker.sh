@@ -7,7 +7,7 @@
 
  # 将host主机的内核目录挂载到容器目录中
  docker run -d --name ${DOCKER_NAME} --privileged \
-            -v $(pwd):/mnt/ebpf_mindspore \
+            -v $(pwd):/mnt/ms_observability \
             -v /lib/modules:/lib/modules:ro \
             -v /usr/src:/usr/src:ro \
             -v /boot/:/boot:ro \
